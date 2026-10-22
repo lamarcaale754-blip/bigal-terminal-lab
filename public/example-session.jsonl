@@ -1,0 +1,10 @@
+{"id":"example-alpha-1","ts":1776693600000,"symbol":"ALPHA","price":120,"size":2,"side":"buy"}
+{"id":"example-beta-1","ts":1776693605000,"symbol":"BETA","price":48}
+{"id":"example-alpha-2","ts":1776693610000,"symbol":"ALPHA","price":122,"size":1,"side":"buy"}
+{"id":"example-alpha-3","ts":1776693620000,"symbol":"ALPHA","price":119,"size":3,"side":"sell"}
+{"id":"example-beta-2","ts":1776693625000,"symbol":"BETA","price":47.5}
+{"id":"example-alpha-4","ts":1776693630000,"symbol":"ALPHA","price":121,"size":2,"side":"buy"}
+{"id":"example-alpha-5","ts":1776693660000,"symbol":"ALPHA","price":123,"size":4,"side":"buy"}
+{"id":"example-beta-3","ts":1776693665000,"symbol":"BETA","price":48.25}
+{"id":"example-alpha-6","ts":1776693675000,"symbol":"ALPHA","price":122.5,"size":1,"side":"sell"}
+{"id":"example-alpha-7","ts":1776693780000,"symbol":"ALPHA","price":124,"size":2,"side":"buy"}
