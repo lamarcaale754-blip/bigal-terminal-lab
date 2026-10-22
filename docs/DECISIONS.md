@@ -1,25 +1,25 @@
 # Engineering decisions
 
-## An explicit observation contract instead of private runtime messages
+## Preserve the terminal's actual interface and strategy
 
-The original interface was tightly coupled to its backend state. The portfolio edition separates presentation from that runtime by accepting a small typed event schema. This makes behavior testable, prevents accidental control messages, and lets recordings from different providers share one viewer. It deliberately omits account balances and position/PnL panels: the new schema does not contain the evidence needed to calculate them.
+The public edition keeps the original React components and ordinary strategy paths so an engineer can follow an event from candidate discovery through entry, position management and journal output. Unsupported or private modules are removed from the panel registry and configuration, rather than represented by fake buttons or random data.
 
-## Observed data instead of decorative candlesticks
+## Separate a UI preview from a paper backend
 
-Wicks are extrema of observed prices, volume is a recorded quantity, and VWAP requires that quantity. Missing measurements are visible as unavailable, even if the chart looks less busy. Sparse observations cannot recover trades that were never captured. The UI and exports preserve that distinction.
+GitHub Pages can host the interface but cannot run Python. Preview therefore demonstrates the UI with labeled fictional state. Local offline mode runs the actual strategy against deterministic market messages. This distinction keeps the public preview easy to inspect without treating canned demonstration trades as strategy evidence.
 
-## Deterministic demo instead of paid-service prerequisites
+## Treat chart data as measurements
 
-A seeded, fictional four-instrument session drives the same core as imported files. Reviewers can reproduce a chart and seek to the same moment without credentials or a paid gRPC account. Synthetic labels remain visible throughout the demo. Determinism is a verification tool, not evidence of live-market performance.
+Candlestick wicks are observed extrema. A bonding-curve progress percentage is never a token price. Event/receipt times are labeled; missing trade timestamps do not become fabricated wall-clock history. Volume and VWAP require complete executed-size observations. PnL candles describe changes in recorded cumulative PnL, including a retained history's actual starting baseline.
 
-## Complete-prefix recomputation instead of fragile incremental state
+## Keep execution behind backend capabilities
 
-For bounded recordings, recomputing from the revealed prefix is simple and testable. Backward seeks cannot leave future candles or indicators cached in the view. The cost is more work per update than an incremental stream processor. A 20,000-record limit makes this an explicit tradeoff; no hidden throughput claims are made.
+The UI shows which executors the backend can actually use. Offline mode cannot switch into live execution. Keys stay in environment variables on the backend. Ordinary Legacy code remains inspectable and mock-tested, while the paid gRPC/Rust integration stays private. A disconnected dashboard never queues trading commands for later execution.
 
-## Fresh public history instead of filtering a private monorepo
+## Bound state and expose failure
 
-Only selected presentation patterns were retained. Rebuilding the data boundary and starting a new repository avoids carrying old archives, runtime records, operational features, or unrelated history into the public artifact. The complete source project remains private.
+WebSocket frame size, input lengths, candidate caches and UI histories are bounded. Reconnect uses snapshots rather than stale command replay. Failed exits retain positions; uncertain execution requires attention rather than silently retrying a potentially landed transaction. Unmeasured latency remains unavailable.
 
-## Static deployment instead of an unnecessary backend
+## Use a local service with a small deployment surface
 
-The viewer needs no server-side state. A static build and optional non-root Nginx container make local startup and hosting straightforward. JSONL parsing uses a worker; imports stay local; font files are bundled. A database or API service would add deployment burden without supporting a current requirement.
+The Python process serves the built UI and its WebSocket on loopback. An offline Docker service is reproducible without wallet secrets or subscriptions. This simplifies inspection and testing; it deliberately does not claim production hosting, authenticated multi-user sessions or durable recovery of live orders.

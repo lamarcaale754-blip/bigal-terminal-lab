@@ -23,6 +23,11 @@ jobs:
       - run: npm run lint
       - run: npm run test:coverage
       - run: npm run build
+      - name: Verify Python strategy and real local transport
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -r requirements-dev.txt
+          .venv/bin/python -m pytest tests_python -q
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - name: Build and smoke-test container
@@ -36,6 +41,19 @@ jobs:
           grep -q 'BigAl' /tmp/index.html
           curl --fail http://127.0.0.1:8080/example-session.jsonl
           docker stop terminal-lab
+      - name: Build and smoke-test the full offline terminal
+        run: |
+          docker compose up -d --build
+          for i in $(seq 1 30); do
+            if curl --fail http://127.0.0.1:8766/ > /tmp/bot-index.html; then break; fi
+            sleep 1
+          done
+          grep -q 'BigAl' /tmp/bot-index.html
+          .venv/bin/python scripts/smoke_offline.py
+          docker compose down
+      - name: Container logs on failure
+        if: failure()
+        run: docker compose logs
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:

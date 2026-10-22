@@ -1,0 +1,20 @@
+services:
+  terminal:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    ports:
+      - '127.0.0.1:8765:8765'
+      - '127.0.0.1:8766:8766'
+    volumes:
+      - terminal-runtime:/app/.runtime
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  terminal-runtime:

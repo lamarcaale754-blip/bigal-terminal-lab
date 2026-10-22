@@ -1,9 +1,9 @@
 {
   "name": "bigal-terminal-lab",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "A deterministic market-data replay terminal with event-time OHLC, typed ingestion, and an interactive monitoring workspace.",
+  "description": "BigAl's original React trading terminal, asynchronous Python strategy engine, offline paper mode, observed-price charts and optional Legacy executor.",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -22,10 +22,12 @@
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource-variable/roboto-condensed": "^5.2.8",
+    "@tanstack/react-virtual": "^3.13.23",
     "lightweight-charts": "^5.1.0",
     "lucide-react": "^1.8.0",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

@@ -1,385 +1,317 @@
 import { readFile } from 'node:fs/promises'
 import { test as base, expect, type Page } from '@playwright/test'
 
-// Each test inspects an isolated browser context. Unexpected network traffic is
-// blocked as well as reported, so the suite cannot accidentally use a real feed.
 const test = base.extend<{ runtimeAudit: void }>({
   runtimeAudit: [
     async ({ page }, use) => {
-      const exceptions: string[] = []
-      const externalRequests: string[] = []
-      page.on('pageerror', (error) => exceptions.push(error.message))
+      const errors: string[] = []
+      const external: string[] = []
+      page.on('pageerror', (error) => errors.push(error.message))
       page.on('console', (message) => {
-        if (message.type() === 'error') exceptions.push(message.text())
+        if (message.type() === 'error') errors.push(message.text())
       })
       await page.route('**/*', (route) => {
-        const url = new URL(route.request().url())
-        if (url.origin !== 'http://127.0.0.1:4173') {
-          externalRequests.push(url.origin + url.pathname)
+        if (new URL(route.request().url()).origin !== 'http://127.0.0.1:4173') {
+          external.push(route.request().url())
           return route.abort()
         }
         return route.continue()
       })
       await use()
-      expect(exceptions, 'No uncaught or console runtime errors').toEqual([])
-      expect(externalRequests, 'All application resources remain local').toEqual([])
+      expect(errors, 'No runtime errors').toEqual([])
+      expect(external, 'No external services contacted').toEqual([])
     },
     { auto: true },
   ],
 })
 
-const START = Date.parse('2026-04-20T14:00:00.000Z')
-const observations = [
-  { id: 'a0', ts: START, symbol: 'alpha', price: 100, size: 2, side: 'buy' },
-  { id: 'a1', ts: START + 10_000, symbol: 'alpha', price: 105, size: 1, side: 'sell' },
-  { id: 'b0', ts: START + 15_000, symbol: 'beta', price: 50, size: 1, side: 'buy' },
-  { id: 'a2', ts: START + 20_000, symbol: 'alpha', price: 98, size: 3, side: 'buy' },
-  { id: 'a3', ts: START + 29_000, symbol: 'alpha', price: 103, size: 4, side: 'buy' },
-  { id: 'a4', ts: START + 30_000, symbol: 'alpha', price: 104, size: 2, side: 'sell' },
-  { id: 'a5', ts: START + 40_000, symbol: 'alpha', price: 110, size: 1, side: 'buy' },
-  { id: 'a6', ts: START + 60_000, symbol: 'alpha', price: 108, size: 2, side: 'sell' },
-  { id: 'a7', ts: START + 70_000, symbol: 'alpha', price: 106, size: 2, side: 'buy' },
-]
-const validJsonl = observations.map((row) => JSON.stringify(row)).join('\n')
-
-async function importJsonl(page: Page, contents: string, name = 'hand-checked.jsonl') {
-  await page.getByLabel('Import observations file').setInputFiles({
-    name,
-    mimeType: 'application/x-ndjson',
-    buffer: Buffer.from(contents),
-  })
-  await expect(page.locator('.session-name')).toHaveText(name)
-  await expect(page.getByRole('button', { name: 'Import JSONL' })).toBeEnabled()
-}
-
-async function seek(page: Page, timestamp: number) {
-  // Use the native input value setter and a real DOM input event; no application
-  // state or production helpers are exposed or accessed by the test.
-  await page.getByRole('slider', { name: 'Replay position' }).evaluate((element, value) => {
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
-    setter.call(element, String(value))
-    element.dispatchEvent(new Event('input', { bubbles: true }))
-    element.dispatchEvent(new Event('change', { bubbles: true }))
-  }, timestamp)
-  await expect(page.getByRole('slider', { name: 'Replay position' })).toHaveValue(String(timestamp))
-}
-
-async function downloadedText(page: Page, button: string) {
-  const pending = page.waitForEvent('download')
-  await page.getByRole('button', { name: button, exact: true }).click()
-  const download = await pending
-  const path = await download.path()
-  expect(path).not.toBeNull()
-  return { name: download.suggestedFilename(), text: await readFile(path!, 'utf8') }
-}
-
-test('demo boots with rendered candlesticks and no external dependencies', async ({ page }) => {
+const panel = (page: Page, label: string) => page.locator(`.panel[aria-label="${label}"]`)
+async function preview(page: Page) {
   await page.goto('/')
-  await expect(page.getByText('SYNTHETIC DEMO', { exact: true })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'ALPHA price chart', exact: true })).toBeVisible()
-  const canvases = page.getByRole('img', { name: /^ALPHA price candlesticks/ }).locator('canvas')
-  await expect(canvases.first()).toBeVisible()
-  // The chart library also creates small axis canvases. Require a real plotting
-  // surface without assuming a fixed pane height in a compact desktop layout.
-  await expect
-    .poll(() =>
-      canvases.evaluateAll((elements) =>
-        elements.some(
-          (element) =>
-            (element as HTMLCanvasElement).width > 200 &&
-            (element as HTMLCanvasElement).height > 32,
-        ),
-      ),
-    )
-    .toBe(true)
-  await expect(page.getByTestId('record-count')).toHaveText('3,120 / 4,800')
-  await expect(page.getByRole('button', { name: 'Play replay' })).toBeVisible()
-  await expect(page.locator('.chart-volume-note')).toHaveText('Volume: recorded base-asset units')
+  await page.getByRole('button', { name: /^Preview Synthetic/ }).click()
+  await expect(page.getByRole('button', { name: 'PREVIEW', exact: true })).toBeVisible()
+}
+async function menu(page: Page, name: string, item: string) {
+  await page.getByRole('button', { name, exact: true }).click()
+  await page.getByRole('menuitem', { name: item, exact: true }).click()
+}
+async function togglePanel(page: Page, name: string, item: string) {
+  await page.getByRole('button', { name, exact: true }).click()
+  await page.getByRole('menuitemcheckbox', { name: item }).click()
+  await page.keyboard.press('Escape')
+}
+
+test('original terminal menus and compact default panels render; preview never connects', async ({
+  page,
+}) => {
+  const sockets: string[] = []
+  page.on('websocket', (socket) => sockets.push(socket.url()))
+  await page.goto('/')
+  await expect(page.getByRole('dialog', { name: 'Connect BigAl Terminal' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Live Rust/ })).toBeDisabled()
+  await expect(page.getByRole('button', { name: /^Live Legacy/ })).toBeDisabled()
+  await page.getByRole('button', { name: /^Preview Synthetic/ }).click()
+  await expect(page.locator('.workspace > .workspace-column')).toHaveCount(2)
+  for (const name of ['Chart', 'Candidates', 'Positions', 'Terminal Log'])
+    await expect(panel(page, name)).toBeVisible()
+  for (const name of ['View', 'Intelligence', 'Tools'])
+    await expect(page.getByRole('button', { name, exact: true })).toBeVisible()
+  await expect(panel(page, 'Chart').locator('canvas').first()).toBeVisible()
+  await expect(page.getByText('SYNTHETIC DATA', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Operations', exact: true })).toHaveCount(0)
+  await togglePanel(page, 'Tools', 'Connection Health')
+  await expect(panel(page, 'Connection Health')).toContainText(
+    'Preview — no network endpoints connected',
+  )
+  expect(sockets).toEqual([])
+})
+
+test('candidate selection links observed charts and advanced overlays expose unavailable volume', async ({
+  page,
+}) => {
+  await preview(page)
+  await panel(page, 'Candidates').getByText('VECTOR', { exact: true }).click()
   await expect(
-    page
-      .getByRole('region', { name: 'Instrument watchlist', exact: true })
-      .getByRole('button', { name: /^BETA/ }),
+    page.getByRole('img', { name: 'VECTOR observed SOL price candlesticks' }),
   ).toBeVisible()
-})
-
-test('replay play, pause, seek, and step reveal the event-time prefix without timer races', async ({
-  page,
-}) => {
-  await page.goto('/')
-  await importJsonl(page, validJsonl)
-  await expect(page.getByTestId('record-count')).toHaveText('1 / 9')
-  await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') })
-  await page.clock.pauseAt(new Date('2030-01-01T00:01:00Z'))
-  await page.getByRole('button', { name: 'Next observation' }).click()
-  await expect(page.getByTestId('record-count')).toHaveText('2 / 9')
-  await page.getByRole('button', { name: 'Restart replay' }).click()
-  await page.getByRole('combobox', { name: 'Replay speed' }).selectOption('20')
-  await page.getByRole('button', { name: 'Play replay' }).click()
-  await page.clock.runFor(600)
-  await expect(page.getByTestId('record-count')).toHaveText('2 / 9')
-  await page.getByRole('button', { name: 'Pause replay' }).click()
-  await page.clock.runFor(1_000)
-  await expect(page.getByTestId('record-count')).toHaveText('2 / 9')
-
-  await page.getByRole('button', { name: 'Play replay' }).click()
-  await seek(page, START + 29_999)
-  await page.clock.runFor(10_000)
-  await expect(page.getByRole('button', { name: 'Play replay' })).toBeVisible()
-  await expect(page.getByTestId('record-count')).toHaveText('5 / 9')
-  await page.getByRole('button', { name: 'Next observation' }).click()
-  await expect(page.getByTestId('record-count')).toHaveText('6 / 9')
-  await seek(page, START + 70_000)
-  await page.getByRole('button', { name: 'Next observation' }).click()
-  await expect(page.getByTestId('record-count')).toHaveText('9 / 9')
-  await expect(page.getByText('END OF SESSION', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Play replay' }).click()
-  await page.clock.runFor(100)
-  await expect(page.getByTestId('record-count')).toHaveText('1 / 9')
-  await seek(page, START + 70_000)
-  await page.clock.runFor(10_000)
-  await expect(page.getByTestId('record-count')).toHaveText('9 / 9')
-  await expect(page.getByText('END OF SESSION', { exact: true })).toBeVisible()
-})
-
-test('instrument selection links chart, tape, statistics, intervals, and overlays', async ({
-  page,
-}) => {
-  await page.goto('/')
-  await page
-    .getByRole('region', { name: 'Instrument watchlist', exact: true })
-    .getByRole('button', { name: /^BETA/ })
-    .click()
-  await expect(page.getByRole('region', { name: 'BETA price chart', exact: true })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Trade tape', exact: true })).toContainText(
-    'BETA / USD',
-  )
-  await expect(page.getByRole('region', { name: 'Session statistics', exact: true })).toContainText(
-    'BETA / USD',
-  )
-  await page.getByRole('button', { name: '1m', exact: true }).click()
-  await expect(page.getByRole('button', { name: '1m', exact: true })).toHaveAttribute(
+  await togglePanel(page, 'View', 'Advanced Chart')
+  await page.getByRole('button', { name: 'Maximize Advanced Chart', exact: true }).click()
+  const advanced = panel(page, 'Advanced Chart')
+  await expect(
+    advanced.getByRole('img', { name: 'Observed token price candlesticks in SOL' }),
+  ).toBeVisible()
+  await expect(advanced.getByRole('button', { name: 'VWAP', exact: true })).toBeDisabled()
+  await expect(advanced).toContainText('Volume / VWAP unavailable: no complete sizes')
+  await advanced.getByRole('button', { name: '1m', exact: true }).click()
+  await expect(advanced.getByRole('button', { name: '1m', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   )
-  await page.getByRole('button', { name: '5m', exact: true }).click()
-  await expect(page.getByRole('button', { name: '5m', exact: true })).toHaveAttribute(
+  await advanced.getByRole('button', { name: 'EMA 21', exact: true }).click()
+  await expect(advanced.getByRole('button', { name: 'EMA 21', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   )
-  await expect(page.locator('.chart-footnote')).toContainText('7 bars')
-  await page.getByRole('button', { name: 'EMA 9', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'EMA 9', exact: true })).toHaveAttribute(
+  await advanced.getByRole('button', { name: 'Toggle grid' }).click()
+  await expect(advanced.getByRole('button', { name: 'Toggle grid' })).toHaveAttribute(
     'aria-pressed',
     'false',
   )
-  await page.getByRole('button', { name: 'VWAP', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'VWAP', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
-  await page.getByRole('button', { name: 'Fit all candles in view' }).click()
+  await page.getByRole('button', { name: 'Restore Advanced Chart', exact: true }).click()
+  await expect(panel(page, 'Candidates')).toBeVisible()
 })
 
-test('local import validates rows and exports independently checked OHLC and normalized data', async ({
+test('configuration presets, pause commands and simulated exits update journal and wallet', async ({
   page,
 }) => {
-  await page.goto('/')
-  const withIssues = [...observations]
-    .reverse()
-    .map((row) => JSON.stringify({ ...row, discardedField: 'not part of contract' }))
-  withIssues.push(JSON.stringify(observations[0]), '{malformed')
-  await importJsonl(page, withIssues.join('\n'))
-  await page
-    .getByRole('navigation', { name: 'Workspace panels' })
-    .getByRole('button', { name: 'Data quality', exact: true })
-    .click()
-  const quality = page.getByRole('region', { name: 'Data quality', exact: true })
-  await expect(
-    quality
-      .locator('.quality-grid > div')
-      .filter({ hasText: 'Accepted records' })
-      .locator('strong'),
-  ).toHaveText('9')
-  await expect(
-    quality
-      .locator('.quality-grid > div')
-      .filter({ hasText: 'Duplicates removed' })
-      .locator('strong'),
-  ).toHaveText('1')
-  await expect(
-    quality
-      .locator('.quality-grid > div')
-      .filter({ hasText: 'Validation issues' })
-      .locator('strong'),
-  ).toHaveText('1')
-  await expect(quality).toContainText('Line 11: Invalid JSON.')
-
-  await seek(page, START + 29_999)
-  const readout = page.locator('.chart-readout')
-  await expect(readout).toContainText('O 100.00')
-  await expect(readout).toContainText('H 105.00')
-  await expect(readout).toContainText('L 98.00')
-  await expect(readout).toContainText('C 103.00')
-  await expect(readout).toContainText('4 observations')
-  await expect(readout).toContainText('Vol 10.00')
-  const prefix = await downloadedText(page, 'Export candles')
-  expect(prefix.name).toBe('ALPHA-30s-candles.csv')
-  const prefixRows = prefix.text.trim().split('\n')
-  expect(prefixRows).toHaveLength(2)
-  const cells = prefixRows[1].split(',')
-  expect(cells.slice(0, 6)).toEqual(['2026-04-20T14:00:00.000Z', '100', '105', '98', '103', '10'])
-  expect(Number(cells[6])).toBeCloseTo(101.1, 10)
-  expect(cells[7]).toBe('4')
-
-  await seek(page, START + 70_000)
-  await page.getByRole('button', { name: '1m', exact: true }).click()
-  const minute = await downloadedText(page, 'Export candles')
-  expect(minute.name).toBe('ALPHA-60s-candles.csv')
-  const minuteRows = minute.text
-    .trim()
-    .split('\n')
-    .slice(1)
-    .map((row) => row.split(','))
-  expect(minuteRows).toHaveLength(2)
-  expect(minuteRows[0].slice(0, 6)).toEqual([
-    '2026-04-20T14:00:00.000Z',
-    '100',
-    '110',
-    '98',
-    '110',
-    '13',
-  ])
-  expect(Number(minuteRows[0][6])).toBeCloseTo(1329 / 13, 10)
-  expect(minuteRows[0][7]).toBe('6')
-  expect(minuteRows[1]).toEqual([
-    '2026-04-20T14:01:00.000Z',
-    '108',
-    '108',
-    '106',
-    '106',
-    '4',
-    '107',
-    '2',
-  ])
-
-  const normalized = await downloadedText(page, 'Export session')
-  expect(normalized.name).toBe('observations.jsonl')
-  const rows = normalized.text
-    .trim()
-    .split('\n')
-    .map((row) => JSON.parse(row))
-  expect(rows).toEqual(observations.map((row) => ({ ...row, symbol: row.symbol.toUpperCase() })))
+  await preview(page)
+  await menu(page, 'Tools', 'Config Panel Ctrl+,')
+  await page.getByRole('button', { name: 'Risk Limits', exact: true }).click()
+  const tradeSize = page.getByRole('slider', { name: 'Trade Size', exact: true })
+  await expect(tradeSize).toHaveValue('0.05')
+  await page.getByRole('button', { name: 'Presets', exact: true }).click()
+  await page.getByRole('button', { name: 'Conservative', exact: true }).click()
+  await page.getByRole('button', { name: 'Risk Limits', exact: true }).click()
+  await expect(tradeSize).toHaveValue('0.025')
+  await tradeSize.focus()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'Settings', exact: true })).toHaveCount(0)
+  await page.keyboard.press('Control+k')
+  await page.getByRole('textbox', { name: 'Find a command' }).fill('pause')
+  await page.getByRole('textbox', { name: 'Find a command' }).press('Enter')
+  await expect(page.getByRole('button', { name: 'PAUSED', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'PAUSED', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'PAUSED', exact: true })).toHaveCount(0)
+  await togglePanel(page, 'View', 'Trade History')
+  const historyRows = panel(page, 'Trade History').locator('tbody tr')
+  await expect(historyRows).toHaveCount(24)
+  await page.getByRole('button', { name: 'Sell ORBIT', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Sell ORBIT', exact: true })).toHaveCount(0)
+  await expect(historyRows).toHaveCount(25)
+  await expect(historyRows.last()).toContainText('ORBIT')
+  await expect(page.getByText('Simulated preview exit recorded')).toBeVisible()
+  const downloadEvent = page.waitForEvent('download')
+  await menu(page, 'Tools', 'Export Trade Journal')
+  const download = await downloadEvent
+  expect(download.suggestedFilename()).toBe('preview-trade-journal.csv')
+  const filePath = await download.path()
+  expect(filePath).not.toBeNull()
+  const csv = await readFile(filePath!, 'utf8')
+  expect(csv).toContain('time,symbol,name,action,pnl_pct,pnl_sol,cum_pnl')
+  expect(csv).toContain('PREVIEW EXIT')
+  await menu(page, 'Tools', 'Wallet')
+  await expect(page.getByText('Wallet', { exact: true }).last()).toBeVisible()
 })
 
-test('missing sizes hide volume and VWAP; failed imports preserve the loaded session', async ({
+test('panel close, reopen, keyboard resize, maximize and original layout presets work', async ({
   page,
 }) => {
-  await page.goto('/')
-  const missing = [
-    { id: 'm0', ts: START, symbol: 'MISSING', price: 12, size: 2 },
-    { id: 'm1', ts: START + 1_000, symbol: 'MISSING', price: 14 },
-  ]
-  await importJsonl(
-    page,
-    missing.map((row) => JSON.stringify(row)).join('\n'),
-    'missing-size.jsonl',
-  )
-  await expect(page.getByRole('button', { name: 'VWAP', exact: true })).toBeEnabled()
-  await seek(page, START + 1_000)
-  await expect(page.getByRole('button', { name: 'VWAP', exact: true })).toBeDisabled()
-  await expect(page.locator('.chart-volume-note')).toContainText('unavailable')
-  await expect(page.getByRole('region', { name: 'Session statistics', exact: true })).toContainText(
-    'Unavailable',
-  )
-  const exported = await downloadedText(page, 'Export candles')
-  expect(exported.text.trim().split('\n')[1].split(',')).toEqual([
-    '2026-04-20T14:00:00.000Z',
-    '12',
-    '14',
-    '12',
-    '14',
-    '',
-    '',
-    '2',
-  ])
-
-  await page.getByLabel('Import observations file').setInputFiles({
-    name: 'invalid.jsonl',
-    mimeType: 'application/x-ndjson',
-    buffer: Buffer.from('{invalid'),
-  })
-  await expect(page.getByRole('alert')).toContainText('Invalid JSON')
-  await expect(page.locator('.session-name')).toHaveText('missing-size.jsonl')
-  await expect(page.getByTestId('record-count')).toHaveText('2 / 2')
-  await expect(page.getByRole('region', { name: 'MISSING price chart', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Dismiss import error' }).click()
-  await expect(page.getByRole('alert')).toHaveCount(0)
-})
-
-test('workspace panels close, reopen, maximize, resize, persist, and reset', async ({ page }) => {
-  await page.goto('/')
-  const nav = page.getByRole('navigation', { name: 'Workspace panels' })
-  await page.getByRole('button', { name: 'Maximize Price chart', exact: true }).click()
-  await expect(page.locator('.workspace .panel')).toHaveCount(1)
-  await expect(page.getByRole('button', { name: 'Restore Price chart' })).toBeFocused()
-  await page.getByRole('button', { name: 'Restore Price chart' }).click()
-  await expect(page.locator('.workspace .panel')).toHaveCount(4)
-  const chart = page.getByRole('region', { name: 'Price chart', exact: true })
+  await preview(page)
+  const chart = panel(page, 'Chart')
   const before = await chart.boundingBox()
-  await page.getByRole('separator').first().focus()
-  await page.getByRole('separator').first().press('ArrowDown')
-  await expect.poll(async () => (await chart.boundingBox())!.height).toBeGreaterThan(before!.height)
-  await page.getByRole('separator').first().press('Enter')
+  await page.getByRole('separator', { name: 'Resize panels' }).first().focus()
+  await page.keyboard.press('ArrowDown')
   await expect
-    .poll(async () => Math.abs((await chart.boundingBox())!.height - before!.height))
-    .toBeLessThan(2)
-  await page.getByRole('button', { name: 'Close Price chart', exact: true }).click()
-  await expect(chart).toHaveCount(0)
-  await nav.getByRole('button', { name: 'Price chart', exact: true }).click()
-  await expect(chart).toBeVisible()
-  await nav.getByRole('button', { name: 'Event log', exact: true }).click()
-  await page.getByRole('button', { name: 'Close Trade tape', exact: true }).click()
-  await page.reload()
-  await expect(page.getByRole('region', { name: 'Event log', exact: true })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Trade tape', exact: true })).toHaveCount(0)
-  await nav.getByRole('button', { name: 'Reset layout' }).click()
+    .poll(async () => (await chart.boundingBox())?.height ?? 0)
+    .toBeGreaterThan(before!.height)
+  await page.getByRole('button', { name: 'Close Candidates', exact: true }).click()
+  await expect(panel(page, 'Candidates')).toHaveCount(0)
+  await togglePanel(page, 'View', 'Candidates')
+  await expect(panel(page, 'Candidates')).toBeVisible()
+  await page.getByRole('button', { name: 'Maximize Chart', exact: true }).click()
+  await expect(panel(page, 'Positions')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Restore Chart', exact: true }).click()
+  await expect(panel(page, 'Positions')).toBeVisible()
+  await menu(page, 'View', 'Layout: Quick Trade')
+  await expect(page.locator('.workspace .panel')).toHaveCount(2)
+  await menu(page, 'View', 'Reset Layout')
   await expect(page.locator('.workspace .panel')).toHaveCount(4)
-  await expect(page.getByRole('region', { name: 'Trade tape', exact: true })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Event log', exact: true })).toHaveCount(0)
-  for (let index = 0; index < 4; index++) {
-    await page
-      .locator('.workspace')
-      .getByRole('button', { name: /^Close / })
-      .first()
-      .click()
-  }
-  await expect(page.getByRole('heading', { name: 'Your workspace' })).toBeVisible()
-  await page.getByRole('button', { name: 'Add Price chart panel', exact: true }).click()
-  await expect(chart).toBeVisible()
-  await expect(
-    page.getByRole('button', { name: 'Maximize Price chart', exact: true }),
-  ).toBeFocused()
+  for (const name of ['Chart', 'Candidates', 'Positions', 'Terminal Log'])
+    await page.getByRole('button', { name: `Close ${name}`, exact: true }).click()
+  await expect(page.getByRole('button', { name: /^Advanced Chart/ })).toBeVisible()
+  await page.getByRole('button', { name: /^Advanced Chart/ }).click()
+  await expect(panel(page, 'Advanced Chart')).toBeVisible()
 })
 
-test('narrow mobile layout keeps panels and controls usable without body overflow', async ({
+test('narrow screens stack original panels and keep controls inside the viewport', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 375, height: 812 })
+  await preview(page)
+  for (const width of [375, 320]) {
+    await page.setViewportSize({ width, height: 812 })
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            document.documentElement.scrollWidth <= innerWidth &&
+            document.body.scrollWidth <= innerWidth,
+        ),
+      )
+      .toBe(true)
+    await expect(page.getByRole('button', { name: 'View', exact: true })).toBeInViewport()
+    await expect(page.getByRole('button', { name: 'PREVIEW', exact: true })).toBeInViewport()
+    await panel(page, 'Terminal Log').scrollIntoViewIfNeeded()
+    await expect(panel(page, 'Terminal Log')).toBeInViewport()
+  }
+})
+
+interface SocketHarness {
+  sent: string[]
+  open: () => void
+  receive: (value: unknown) => void
+  close: () => void
+}
+declare global {
+  interface Window {
+    testSockets: SocketHarness[]
+  }
+}
+
+test('explicit backend connection reconnects without replaying commands or accepting stale frames', async ({
+  page,
+}) => {
+  await page.clock.install()
+  await page.clock.pauseAt(new Date())
+  await page.addInitScript(() => {
+    window.testSockets = []
+    class FakeSocket {
+      static OPEN = 1
+      readyState = 0
+      sent: string[] = []
+      onopen: ((event: Event) => void) | null = null
+      onclose: ((event: Event) => void) | null = null
+      onmessage: ((event: MessageEvent) => void) | null = null
+      onerror: ((event: Event) => void) | null = null
+      constructor() {
+        window.testSockets.push(this)
+      }
+      open() {
+        this.readyState = 1
+        this.onopen?.(new Event('open'))
+      }
+      receive(value: unknown) {
+        this.onmessage?.(new MessageEvent('message', { data: JSON.stringify(value) }))
+      }
+      close() {
+        this.readyState = 3
+        this.onclose?.(new Event('close'))
+      }
+      send(value: string) {
+        this.sent.push(value)
+      }
+    }
+    Object.defineProperty(window, 'WebSocket', { value: FakeSocket })
+  })
   await page.goto('/')
-  await expect(page.getByRole('region', { name: 'ALPHA price chart', exact: true })).toBeVisible()
-  await expect
-    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
-    .toBe(true)
-  await page.getByRole('button', { name: 'Maximize Price chart', exact: true }).click()
-  await expect(page.locator('.workspace .panel')).toHaveCount(1)
-  await page.getByRole('button', { name: 'Restore Price chart' }).click()
-  await expect(page.locator('.workspace .panel')).toHaveCount(4)
-  await page.getByRole('button', { name: 'Data contract', exact: true }).click()
-  await expect(page.getByRole('dialog')).toBeVisible()
-  await page.getByRole('button', { name: 'Close data contract' }).click()
-  await expect(page.getByRole('dialog')).not.toBeVisible()
-  await page.setViewportSize({ width: 320, height: 680 })
-  await expect
-    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
-    .toBe(true)
+  expect(await page.evaluate(() => window.testSockets.length)).toBe(0)
+  await page.getByRole('button', { name: /^Paper Local/ }).click()
+  await page.getByRole('button', { name: 'Connect', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => window.testSockets.length)).toBe(1)
+  await page.evaluate(() => {
+    const socket = window.testSockets[0]
+    socket.open()
+    socket.receive({
+      type: 'snapshot',
+      data: {
+        mode: 'PAPER',
+        executor_type: 'paper',
+        balance: 5,
+        startup_hints: { available_modes: ['paper'] },
+        positions: [
+          {
+            mint: 'FIXTURE',
+            symbol: 'FIXTURE',
+            name: 'fixture',
+            size_sol: 0.05,
+            pnl_pct: 4,
+            hold_time: 5,
+            partial_sold: false,
+            is_moonbag: false,
+          },
+        ],
+      },
+    })
+  })
+  await page.getByRole('button', { name: 'Launch Paper', exact: true }).click()
+  expect(
+    await page.evaluate(() => window.testSockets[0].sent.map((value) => JSON.parse(value))),
+  ).toEqual([{ type: 'mode_select', mode: 'paper' }])
+  await page.evaluate(() =>
+    window.testSockets[0].receive({
+      type: 'mode_ack',
+      data: { mode: 'PAPER', balance: 5, executor_type: 'paper' },
+    }),
+  )
+  await expect(page.getByRole('button', { name: 'Sell FIXTURE', exact: true })).toBeVisible()
+  await page.evaluate(() => window.testSockets[0].close())
+  await page.getByRole('button', { name: 'Sell FIXTURE', exact: true }).click()
+  await expect(
+    page.getByText('Disconnected — command was not sent. Reconnect and try again.'),
+  ).toBeVisible()
+  await page.clock.fastForward(1000)
+  await expect.poll(() => page.evaluate(() => window.testSockets.length)).toBe(2)
+  await page.evaluate(() => {
+    window.testSockets[1].open()
+    window.testSockets[0].receive({ type: 'stats', data: { positions: [] } })
+  })
+  await expect(page.getByRole('button', { name: 'Sell FIXTURE', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => window.testSockets[1].sent)).toEqual([])
+  await menu(page, 'Tools', 'Connection / Mode')
+  await page.getByRole('button', { name: 'Disconnect', exact: true }).click()
+  await page.clock.fastForward(20_000)
+  expect(await page.evaluate(() => window.testSockets.length)).toBe(2)
+})
+
+test('documentation screenshot preserves the original dashboard with selected candlesticks', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await preview(page)
+  await panel(page, 'Candidates').getByText('VECTOR', { exact: true }).click()
+  await expect(
+    page.getByRole('img', { name: 'VECTOR observed SOL price candlesticks' }),
+  ).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
+  await page.screenshot({ path: 'docs/terminal.png', fullPage: true })
 })

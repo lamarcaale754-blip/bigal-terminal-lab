@@ -1,13 +1,11 @@
-# Project provenance
+# Source provenance
 
-BigAl Terminal Lab is a standalone portfolio edition of the BigAl terminal interface. Its layout starts from the latest local terminal revision, `3f08e1a` (April 20, 2026), rather than the older single-file dashboard.
+This edition uses the newer React terminal at local revision `3f08e1a` (April 20, 2026). It is separate from the older single-file BigAl Sniper dashboard. The top menu, dense layout, chart stack, candidates, positions, settings, journal, keyboard shortcuts and styling come from that newer implementation.
 
-The resizable, two-column workspace and panel error-boundary pattern retain the original interface's structure. This edition adds accessible panel controls, keyboard resizing, a responsive layout, and panel choices driven by the actual registry.
+The strategy extraction retains source candidate filters, position accounting, entry/exit paths, manual/adaptive/hybrid parameters, dynamic hold, passive volume-exit signals, and ordinary Paper/Legacy execution. Local transport, validation, deterministic input generation and testing were added around those paths. The paid gRPC/Rust execution integration remains private and is not advertised as available by this edition's backend.
 
-The chart and data paths are reconstructed for this edition. Charts use explicit input observations and documented aggregation rules. They do not inherit the earlier implementation's random candle wicks, estimated volume, or synthetic timestamps. Missing measurements remain unavailable rather than being represented as observed data.
+Chart calculations were corrected inside the original chart presentation: observed prices replace curve-percentage substitutions, fabricated wicks/volume are removed, and PnL uses recorded timestamps and balances. Missing history is identified rather than invented. Openly licensed fonts preserve the original sizes and proportions; proprietary binaries are absent.
 
-Typography uses openly licensed replacement fonts. The original branded font binaries are not included; the replacement fonts' licenses accompany their assets.
+This public repository has its own history. No private Git history, archives, wallet files, credentials, actual trade journals, provider logs or unrelated product code are included. Browser demonstration data and offline feed messages are fictional. Offensive orchestration, fabricated-volume tooling and audio were removed from the public source, not merely hidden in the UI.
 
-This repository is a fresh export. It contains no inherited Git history, runtime records, credentials, execution backend, or account integrations. Included example observations are synthetic fixtures created for the public demonstration. No subscription service is required to run the local demo.
-
-The source revision establishes interface provenance. It is not a claim that the earlier application, external services, or execution behavior has been validated by this project. Validation here applies to the source and checks documented in this repository.
+The complete source repository and the latest local original remain separate. The source revision establishes lineage, not proof of live correctness. The validation described here applies to this public code and its documented tests.

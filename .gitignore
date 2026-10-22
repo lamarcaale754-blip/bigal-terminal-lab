@@ -11,3 +11,16 @@ playwright-report/
 *.log
 .DS_Store
 Thumbs.db
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+runtime/
+.runtime/
+wallet*.json
+keypair*.json
+trade_log*.csv
+custom_presets.json

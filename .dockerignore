@@ -6,3 +6,12 @@ test-results
 playwright-report
 docs/*.png
 .env*
+__pycache__
+.venv
+.pytest_cache
+.ruff_cache
+.coverage
+runtime
+.runtime
+wallet*.json
+keypair*.json

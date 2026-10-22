@@ -1,0 +1,4 @@
+# Optional. Only needed for explicitly configured ordinary Legacy execution.
+-r requirements.txt
+solana>=0.36,<0.37
+solders>=0.23,<0.28

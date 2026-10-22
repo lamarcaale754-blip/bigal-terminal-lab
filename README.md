@@ -3,92 +3,100 @@
 [![Verify and publish](https://github.com/lamarcaale754-blip/bigal-terminal-lab/actions/workflows/verify.yml/badge.svg)](https://github.com/lamarcaale754-blip/bigal-terminal-lab/actions/workflows/verify.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-An interactive market-data replay terminal built with **React, TypeScript, and TradingView Lightweight Charts**. It turns timestamped observations into inspectable candlesticks, a linked trade tape, and session statistics—without inventing missing measurements.
+A compact trading terminal with a **React/TypeScript dashboard and an asynchronous Python strategy engine**. This public edition preserves the newer BigAl interface: dropdown menus, linked candlestick charts, candidate discovery, position management, strategy settings, and trade history.
 
-**[Open the live demo](https://lamarcaale754-blip.github.io/bigal-terminal-lab/)** · [Data contract](docs/DATA_CONTRACT.md) · [Architecture](docs/ARCHITECTURE.md) · [Design decisions](docs/DECISIONS.md)
+**[Open the UI preview](https://lamarcaale754-blip.github.io/bigal-terminal-lab/)** · [Architecture](docs/ARCHITECTURE.md) · [Data contract](docs/DATA_CONTRACT.md) · [Source provenance](docs/PROVENANCE.md)
 
-![BigAl Terminal Lab workspace with linked price chart, watchlist, statistics, and trade tape](docs/terminal.png)
+![BigAl Terminal with its original menu bar, candlestick charts, candidates, positions, and terminal log](docs/terminal.png)
 
-## Run it
+The **local offline mode runs the extracted original strategy** against fictional market messages. Entries, filters, partial/full exits, trailing stops, cooldowns, and PnL are computed by the bot. No gRPC subscription or wallet is needed. The hosted Preview is a separate, clearly labeled UI fixture; its displayed trades are demonstration data.
 
-Requires **Node.js 22.12+** (Node 24 is used in CI).
+## Run the full terminal
+
+Requires **Node.js 22.12+** and **Python 3.11+**. CI uses Node 24 and Python on Ubuntu.
 
 ```bash
 npm ci
-npm run dev
-```
-
-Open the local URL printed by Vite. The application starts with **4,800 deterministic synthetic observations** across four fictional instruments. Press **Play**, change replay speed, drag the timeline, or step to the next event time. No account, API key, wallet, backend, or gRPC subscription is needed.
-
-```bash
-# Production build and local preview
 npm run build
-npm run preview
-
-# Optional container: builds the same static application
-docker build -t bigal-terminal-lab .
-docker run --rm -p 8080:8080 bigal-terminal-lab
+python -m venv .venv
 ```
 
-The container serves at `http://localhost:8080` as a non-root Nginx process. This is a static app; opening `dist/index.html` directly through `file://` is not supported. Use a web server so modules and the import worker load correctly.
+Activate the environment:
 
-## What it demonstrates
-
-| Capability                            | Implementation                                                                                                                      |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Honest chart aggregation              | Event-time OHLC in half-open UTC buckets; no fabricated wicks, gap filling, or price/percentage substitution                        |
-| Indicators with explicit requirements | Causal EMA9; actual size-weighted session VWAP and recorded volume, hidden when quantities are incomplete                           |
-| Reproducible replay                   | Monotonic playback clock, speed control, step, pause, and deterministic prefix reconstruction on seek                               |
-| Bounded ingestion                     | Web Worker JSONL validation; 5 MiB / 20,000-record limits; ID deduplication and conflict reporting                                  |
-| Linked workspace                      | Instrument selection drives the chart, tape, and statistics; resizable/maximizable panels; keyboard controls; saved panel selection |
-| Inspectable data                      | Quality panel, event log, normalized JSONL export, and CSV export of only the currently revealed candles                            |
-| Deployable frontend                   | Strict TypeScript, unit and browser tests, CI, static GitHub Pages deployment, and a container smoke test                           |
-
-The workspace was adapted from my newer local terminal interface. The data engine and chart calculations were rebuilt for this standalone edition. See [provenance](docs/PROVENANCE.md).
-
-## Replay your own recording
-
-Choose **Import JSONL**. Each line is a normalized observation:
-
-```json
-{"id":"obs-001","ts":1776693600000,"symbol":"ALPHA","price":120.5,"size":2.4,"side":"buy"}
-{"id":"obs-002","ts":1776693602500,"symbol":"ALPHA","price":120.8,"size":1.1,"side":"sell"}
+```powershell
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
 ```
-
-- `ts` is UTC epoch milliseconds; `price` is normalized to USD; optional `size` is executed base-asset quantity.
-- Omit `size` or `side` if your recording does not contain them. The application does not infer either field.
-- Files are processed locally in a browser worker. There is no upload, telemetry collection, or connection to a trading service.
-- Accepted observations are sorted by timestamp. Equal timestamps retain input order. Invalid rows and conflicting duplicate IDs are reported in **Data quality**.
-- Importing replaces the current in-memory session and starts paused at the first event. A wholly invalid or oversized file leaves the existing session intact.
-- Refreshing restores the demo; only the list of open panels is saved. Use **Export session** to save normalized data before refreshing.
-
-Try [example-session.jsonl](public/example-session.jsonl), including sparse intervals and a price-only instrument. Exact bounds, deduplication semantics, and indicator definitions are documented in the [data contract](docs/DATA_CONTRACT.md).
-
-## Verify it
 
 ```bash
-npm run check             # ESLint, data-engine tests, TypeScript, production build
-npm run test:coverage     # Coverage for the pure data engine (not the entire UI)
-npx playwright install chromium
-npm run test:e2e          # Production-preview browser scenarios
+# macOS / Linux
+source .venv/bin/activate
 ```
 
-The browser suite exercises replay and symbol linking, malformed/duplicate imports, missing volume, file downloads, panel persistence, keyboard resizing, and a narrow viewport. It also checks for unexpected external requests and browser errors. To use an installed Edge browser, set `PLAYWRIGHT_CHANNEL=msedge` in your shell before running the browser suite.
+Then start the offline bot:
 
-CI runs the checks and browser suite, builds and smoke-tests the container, and publishes the verified static build to GitHub Pages. The synthetic feed makes these tests repeatable without paid market-data access.
+```bash
+python -m pip install -r requirements.txt
+python -m bot.bigalbot_customizable --offline
+```
 
-## Boundaries and tradeoffs
+Open **http://127.0.0.1:8766**, choose **Connect**, then **Open running session**. The backend generates fictional observations and runs the actual entry/exit strategy. Allow several seconds for a candidate to meet its entry filters. Click a candidate or position to link its price chart; use **View**, **Intelligence**, and **Tools** to open panels and settings. Space pauses new entries while the bot continues managing existing positions.
 
-- This is a **market-data inspection and replay application**, not an order router or account dashboard. It does not execute trades or calculate account PnL.
-- Demo observations are explicitly fictional. Imported files are not independently authenticated as exchange data.
-- Candles summarize **recorded observations**, which can be sparse. They are not guaranteed complete-market OHLC or volume. Empty intervals remain gaps.
-- Session VWAP begins at the first visible observation; EMA is seeded at the first observed close. The latest bar is partial at the replay cursor.
-- Numeric calculations use JavaScript floating point, suitable for visualization rather than financial settlement.
-- Live gRPC/provider connectivity has **not** been tested and is not bundled. A provider adapter can normalize an existing recording into the documented file contract without changing the viewer.
-- The bounded file model favors reproducibility and simple deployment. It is not an unbounded exchange-feed collector. Chart aggregation scans the visible session; very large streams belong in a separate ingestion service.
+To inspect just the interface, run `npm run dev` and choose **Preview**. The public Pages site also uses this browser-only preview and never automatically connects to a local backend.
 
-The complete private application remains separate. This repository starts with fresh history and contains only the standalone viewer, synthetic fixtures, documentation, and verification tooling.
+## What is included
+
+| Area                 | Implementation                                                                                                                                                 |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Original terminal UI | Compact top menu, resizable panels, layout presets, keyboard shortcuts, command palette, virtualized tables, settings and trade journal export                 |
+| Candidate discovery  | Token creation/trade ingestion, unique-buyer and volume windows, sell-ratio/net-buy/liquidity filters, age limits, bounded caches and anti-manipulation checks |
+| Position lifecycle   | Entry reservation, position accounting, TP1/TP2, stop-loss, trailing exit, maximum hold, optional residual positions, cooldowns and manual exit                |
+| Strategy parameters  | Source manual/adaptive/hybrid parameter resolver, dynamic hold and passive volume-exit signals, validated configuration and persisted custom presets           |
+| Data correctness     | Actual observed-price OHLC, recorded trade timestamps for realized PnL, EMA9/21, quantity-dependent VWAP/volume, explicit missing data                         |
+| Transport            | Typed WebSocket boundary, validated frames, bounded histories, snapshot recovery, explicit local connection and no replay of disconnected commands             |
+| Execution            | Offline paper mode; source-derived ordinary Legacy HTTP execution adapter, enabled only by backend configuration                                               |
+| Delivery             | Strict TypeScript, unit tests, browser workflows, Python strategy/transport tests, Docker smoke tests and GitHub Pages deployment                              |
+
+The complete private application remains separate. This edition excludes token deployment, rug-pull orchestration, fabricated-volume operations, coordinated-wallet tooling, audio, private configuration, and runtime records. Defensive liquidity-collapse exits remain part of normal position risk management.
+
+## Optional public feed and Legacy adapter
+
+`python -m bot.bigalbot_customizable --feed pumpportal` enables the public market feed. It still uses paper execution until an available live mode is explicitly selected. Network availability and provider limits apply.
+
+Ordinary Legacy execution is included as source. It requires `requirements-live.txt`, a backend-only `BIGAL_RPC_URL` and `BIGAL_PRIVATE_KEY`, and explicit `BIGAL_ENABLE_LIVE=1`. Credentials are read from process environment variables; the dashboard does not collect them, and `.env` files are not loaded automatically. Start with the public feed and select the advertised Legacy mode locally. The UI cannot enable it in offline mode. Mode changes are rejected while positions remain open.
+
+**Live provider connectivity, signing against a real wallet, transaction settlement, and the original paid gRPC/Rust path have not been validated in this edition.** The gRPC/Rust integration remains in the private project. Tests exercise the Legacy adapter through mocks and cover failed/uncertain execution paths; they do not submit transactions. Paper fills omit real fees, slippage, competition and latency, so their results are not live performance evidence.
+
+## Docker
+
+```bash
+# Full offline bot + dashboard; host ports bind only to loopback
+docker compose up --build
+```
+
+Open **http://127.0.0.1:8766** and connect. The named volume stores the local trade journal and custom presets. No credentials are supplied to this service.
+
+```bash
+# Static UI preview only
+docker build -t bigal-terminal-preview .
+docker run --rm -p 127.0.0.1:8080:8080 bigal-terminal-preview
+```
+
+## Verification
+
+```bash
+npm run check
+npm run test:coverage
+npx playwright install chromium
+npm run test:e2e
+python -m pip install -r requirements-dev.txt
+python -m pytest tests_python -q
+```
+
+The checks cover numerical chart behavior, malformed frames, sparse/missing measurements, menu and settings workflows, original entry/exit behavior, failed execution handling, and real loopback WebSocket/HTTP integration. Tests use synthetic inputs and mocked external execution. Coverage thresholds apply to the pure `src/core` data utilities, not the entire product.
+
+CI verifies the production build, browser workflows, Python tests and containers before publishing the static UI preview. Docker is tested in CI. To run browser tests against an installed Edge browser on Windows, set `$env:PLAYWRIGHT_CHANNEL='msedge'` first.
 
 ## License
 
-[MIT](LICENSE) for application source. Fonts are openly licensed Inter and Roboto Condensed, bundled locally. TradingView attribution is retained. See [third-party notices](THIRD_PARTY_NOTICES.md).
+[MIT](LICENSE) for application source. Inter and Roboto Condensed are bundled with their open font licenses. The terminal preserves the original typography proportions and palette without redistributing proprietary font binaries. TradingView attribution is retained. See [third-party notices](THIRD_PARTY_NOTICES.md).

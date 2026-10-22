@@ -6,3 +6,5 @@ playwright-report/
 test-results/
 public/licenses/
 public/example-session.jsonl
+.runtime/
+.venv/
