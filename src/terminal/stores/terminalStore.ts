@@ -191,7 +191,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         if (
           ids.has(tick.id) ||
           !Number.isFinite(tick.price) ||
-          tick.price < 1e-12 ||
+          tick.price < 1e-18 ||
           tick.price > 1e12 ||
           !Number.isSafeInteger(tick.ts) ||
           tick.ts < 0 ||
@@ -200,7 +200,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
           return false
         if (
           tick.size !== undefined &&
-          (!Number.isFinite(tick.size) || tick.size < 1e-12 || tick.size > 1e12)
+          (!Number.isFinite(tick.size) || tick.size < 1e-12 || tick.size > 1e18)
         )
           return false
         ids.add(tick.id)

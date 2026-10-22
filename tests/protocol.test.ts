@@ -4,6 +4,15 @@ import { useTerminalStore } from '../src/terminal/stores/terminalStore'
 
 beforeEach(() => useTerminalStore.getState().resetSession())
 describe('backend frames and bounded terminal state', () => {
+  it('accepts the backend price and size boundary without silently losing observations', () => {
+    dispatchFrame({
+      type: 'price_tick',
+      data: { mint: 'SMALL', ts: 1000, price: 1e-18, size: 1e18, timestamp_source: 'receipt' },
+    })
+    expect(useTerminalStore.getState().chartTicks).toEqual([
+      { id: 'SMALL:1000', symbol: 'SMALL', ts: 1000, price: 1e-18, size: 1e18 },
+    ])
+  })
   it('leaves unreported analytics unavailable and rejects invalid server dates', () => {
     dispatchFrame({ type: 'stats', data: { analytics: {}, server_time_ms: 1e100 } })
     expect(useTerminalStore.getState().analytics?.total_fees_sol).toBeNaN()
@@ -105,7 +114,7 @@ describe('backend frames and bounded terminal state', () => {
       { price: 1e13 },
       { size: 0 },
       { size: -1 },
-      { size: 1e13 },
+      { size: 1e19 },
     ]
     for (const [index, patch] of invalid.entries())
       useTerminalStore

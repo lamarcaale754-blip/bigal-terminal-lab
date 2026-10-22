@@ -23,7 +23,7 @@ A snapshot includes recent positions, trade history, price history, logs, config
 
 - `ts`: integer UTC epoch milliseconds. Provider events in this adapter are timestamped on receipt, not claimed as exchange event time.
 - `price`: SOL per base token. When both trade quantities are supplied, the adapter derives executed price from SOL/base quantity. Reserve-ratio observations are price-only estimates and do not supply executed size.
-- `size`: optional positive executed base quantity. Missing quantity remains unknown. The UI accepts values from `1e-12` to `1e12` and timestamps through 2100-01-01.
+- `size`: optional positive executed base quantity. Missing quantity remains unknown. The terminal accepts prices from `1e-18` to `1e12`, sizes from `1e-12` to `1e18`, and timestamps through 2100-01-01, matching its backend's numeric bounds.
 - `id`: stable observation identifier. Duplicate IDs do not replace the first accepted observation.
 - `simulated`: true for offline fixture observations; the session's source/mode remains visible.
 
